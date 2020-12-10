@@ -28,7 +28,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Login to Crates.io
+    - name: Login to Crates.io and deploy the package
       run: |
         cargo login $CRATES_IO_TOKEN
-        cargo publish --verbose
+        cargo publish
