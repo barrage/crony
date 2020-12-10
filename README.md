@@ -1,4 +1,6 @@
-# Cron jobs and runner that spawns separate task to execute jobs
+# Crony: simple cron runner
+
+Runner that will spawn separate thread where cron jobs will execute.
 
 ## Example
 
