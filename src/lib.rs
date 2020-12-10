@@ -1,5 +1,5 @@
-//! Cron jobs and runner that spawns separate task to execute jobs
-//! # Example
+//! # Cron jobs and runner that spawns separate task to execute jobs
+//! ## Example
 //! ```
 //! extern crate crony;
 //!
@@ -12,7 +12,6 @@
 //!         // Runs every minute
 //!         Schedule::from_str("0 * * * * *").unwrap()
 //!     }
-
 //!     fn handle(&self) {
 //!         println!("Hello, I am cron job running at: {}", self.now());
 //!     }
