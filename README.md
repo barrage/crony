@@ -1,6 +1,6 @@
 # Crony: simple cron runner
 
-Runner that will spawn separate thread where cron jobs will execute.
+Runner that will spawn a separate thread where cron jobs will be executed.
 
 ## Example
 
@@ -17,7 +17,7 @@ impl Job for ExampleJob {
         Schedule::from_str("0 * * * * *").unwrap()
     }
     fn handle(&self) {
-        println!("Hello, I am cron job running at: {}", self.now());
+        println!("Hello, I am a cron job running at: {}", self.now());
     }
 }
 
@@ -28,7 +28,7 @@ fn main() {
 
 /*
 Hello world
-Hello, I am cron job running at: 2020-12-10 16:01:59.740944 UTC
-Hello, I am cron job running at: 2020-12-10 16:02:59.821043 UTC
+Hello, I am a cron job running at: 2020-12-10 16:01:59.740944 UTC
+Hello, I am a cron job running at: 2020-12-10 16:02:59.821043 UTC
 */
 ```
