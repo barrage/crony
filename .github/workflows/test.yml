@@ -1,12 +1,10 @@
-name: Rust
+name: Test-Rust
 
 on:
-  # Trigger the workflow on push or pull request,
-  # but only for the master branch
+  # Trigger the workflow on every branch
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches: 
+      - '*'
 
 env:
   CARGO_TERM_COLOR: always

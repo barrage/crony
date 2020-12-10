@@ -1,13 +1,25 @@
-name: Deploy
+name: Deploy-Rust
 
 on:
+  # Trigger the workflow on push or pull request,
+  # but only for the master branch
   push:
-    branches: [ master ]
+    tags: 
+      - '*'
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: cargo test --verbose
+
   deploy:
 
     needs: test
@@ -20,4 +32,3 @@ jobs:
       run: |
         cargo login $CRATES_IO_TOKEN
         cargo publish --verbose
-
