@@ -3,8 +3,6 @@ name: Deploy
 on:
   push:
     branches: [ master ]
-  merge: 
-    branches: [ master ] 
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,12 +10,14 @@ env:
 jobs:
   deploy:
 
+    needs: test
+
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v2
     - name: Login to Crates.io
-      run: cargo login $CRATES_IO_TOKEN
-    - name: Run publish
-      run: cargo publish --verbose
+      run: |
+        cargo login $CRATES_IO_TOKEN
+        cargo publish --verbose
 
