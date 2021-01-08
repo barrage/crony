@@ -1,4 +1,14 @@
-//! # Crony: simple cron runner
+//! # Crony: a simple cron runner
+//!
+//! Use the `Job` trait to create your cron job struct, pass it to the `Runner` and then start it via `run()` method.
+//! Runner will spawn new thread where it will start looping through the jobs and will run their handle
+//! method once the scheduled time is reached.
+//!
+//! If your OS has enough threads to spare each job will get its own thread to execute, if not it will be
+//! executed in the same thread as the loop but will hold the loop until the job is finished.
+//!
+//! Please look at the [**`Job trait`**](./trait.Job.html) documentation for more information.
+//!
 //! ## Example
 //! ```
 //! extern crate crony;
@@ -31,25 +41,55 @@
 
 extern crate chrono;
 extern crate cron;
+#[macro_use]
+extern crate log;
 
 use chrono::{DateTime, Duration, Utc};
+use lazy_static::lazy_static;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::{Builder, JoinHandle};
+
+/// Re-export of (cron)[https://crates.io/crates/cron] crate
+/// struct for setting the cron schedule time.
+/// Read its documentation for more information and options.
 pub use cron::Schedule;
-use std::sync::mpsc;
-use std::thread::{self, JoinHandle};
+
+lazy_static! {
+    /// Singleton instance of a tracker that won't allow
+    /// same job to run again while its already running
+    /// unless you specificly allow the job to run in
+    /// parallel with itself
+    pub static ref TRACKER: Mutex<Tracker> = Mutex::new(Tracker::new());
+}
 
 pub trait Job: Send + Sync {
     /// Default implementation of is_active method will
-    /// make this job always active. If you wish to change
-    /// this behaviour write around it in your struct
+    /// make this job always active
     fn is_active(&self) -> bool {
         true
     }
 
-    /// Return the schedule instance from your job
+    /// In case your job takes longer to finish and it's scheduled
+    /// to start again (while its still running), default behaviour
+    /// will skip the next run while one instance is already running.
+    /// (if your OS has enough threads, and is spawning a thread for next job)
+    ///
+    /// To override this behaviour and enable it to run in parallel
+    /// with other instances of self, return `true` on this instance.
+    fn allow_parallel_runs(&self) -> bool {
+        false
+    }
+
+    /// Define the run schedule for your job
     fn schedule(&self) -> Schedule;
 
     /// This is where your jobs magic happens, define the action that
     /// will happen once the cron start running your job
+    ///
+    /// If this method panics, your entire job will panic and that may
+    /// or may not make the whole runner panic. Handle your errors
+    /// properly and don't let it panic.
     fn handle(&self);
 
     /// Decide wheather or not to start running your job
@@ -74,10 +114,41 @@ pub trait Job: Send + Sync {
     }
 }
 
+/// Struct for marking jobs running
+pub struct Tracker(Vec<usize>);
+impl Tracker {
+    /// Return new instance of running
+    pub fn new() -> Self {
+        Tracker(vec![])
+    }
+
+    /// Check if id of the job is marked as running
+    pub fn running(&self, id: &usize) -> bool {
+        self.0.contains(id)
+    }
+
+    /// Set job id as running
+    pub fn start(&mut self, id: &usize) {
+        if !self.running(id) {
+            self.0.push(id.clone());
+        }
+    }
+
+    /// Unmark the job from running
+    pub fn stop(&mut self, id: &usize) {
+        if self.running(id) {
+            match self.0.iter().position(|&r| r == *id) {
+                Some(i) => self.0.remove(i),
+                None => 0,
+            };
+        }
+    }
+}
+
 /// Runner that will hold all the jobs and will start up the execution
 /// and eventually will stop it.
 pub struct Runner {
-    jobs: Vec<Box<dyn Job>>,
+    jobs: Vec<Arc<Box<dyn Job>>>,
     thread: Option<JoinHandle<()>>,
     running: bool,
     tx: Option<mpsc::Sender<Result<(), ()>>>,
@@ -95,11 +166,13 @@ impl Runner {
     }
 
     /// Add jobs into the runner
+    ///
+    /// **panics** if you try to push a job onto already started runner
     pub fn add(mut self, job: Box<dyn Job>) -> Self {
         if self.running {
             panic!("Cannot push job onto runner once the runner is started!");
         }
-        self.jobs.push(job);
+        self.jobs.push(Arc::new(job));
 
         self
     }
@@ -109,26 +182,19 @@ impl Runner {
         self.jobs.len()
     }
 
-    /// Start the runner in a spawned thread
+    /// Start the loop and job execution
     pub fn run(self) -> Self {
-        let (tx, rx) = mpsc::channel();
-        Self {
-            thread: Some(thread::spawn(move || loop {
-                match rx.try_recv() {
-                    Ok(_) => break,
-                    Err(_) => (),
-                }
+        if self.jobs.len() == 0 {
+            return self;
+        }
 
-                for job in &self.jobs {
-                    if job.should_run() {
-                        job.handle();
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            })),
+        let (thread, tx) = spawn(self);
+
+        Self {
+            thread,
             jobs: vec![],
             running: true,
-            tx: Some(tx),
+            tx,
         }
     }
 
@@ -139,13 +205,88 @@ impl Runner {
         }
         if let Some(thread) = self.thread.take() {
             if let Some(tx) = self.tx {
-                tx.send(Ok(())).unwrap();
+                match tx.send(Ok(())) {
+                    Ok(_) => (),
+                    Err(e) => error!("Could not send stop signal to cron runner thread: {}", e),
+                };
             }
             thread
                 .join()
-                .expect("Could not stop the spawned CronJob thread");
+                .expect("Could not stop the spawned cron runner thread");
         }
         ()
+    }
+}
+
+/// Spanw the thread for the runner and return its sender to stop it
+fn spawn(runner: Runner) -> (Option<JoinHandle<()>>, Option<Sender<Result<(), ()>>>) {
+    let (tx, rx): (Sender<Result<(), ()>>, Receiver<Result<(), ()>>) = mpsc::channel();
+
+    match Builder::new()
+        .name(String::from("cron-runner-thread"))
+        .spawn(move || {
+            let jobs = runner.jobs;
+
+            loop {
+                match rx.try_recv() {
+                    Ok(_) => {
+                        info!("Stopping the cron runner thread");
+                        break;
+                    }
+                    Err(_) => (),
+                };
+
+                for (id, job) in jobs.iter().enumerate() {
+                    let no = (id + 1).to_string();
+                    let _job = job.clone();
+
+                    if _job.should_run()
+                        && (_job.allow_parallel_runs() || !TRACKER.lock().unwrap().running(&id))
+                    {
+                        TRACKER.lock().unwrap().start(&id);
+
+                        // Spawning a new thread to run the job
+                        match Builder::new()
+                            .name(format!("cron-job-thread-{}", &no))
+                            .spawn(move || {
+                                let now = Utc::now();
+                                debug!(
+                                    "START: {} --- {}",
+                                    format!("cron-job-thread-{}", &no),
+                                    now.format("%H:%M:%S%.f")
+                                );
+
+                                _job.handle();
+                                TRACKER.lock().unwrap().stop(&id);
+
+                                debug!(
+                                    "FINISH: {} --- {}",
+                                    format!("cron-job-thread-{}", &no),
+                                    now.format("%H:%M:%S%.f")
+                                );
+                            }) {
+                            Ok(_) => (),
+                            // In case spawning a new thread fails, we'll run it here
+                            Err(_) => {
+                                let no = (id + 1).to_string();
+                                let now = Utc::now();
+                                debug!("START: N/A-{} --- {}", &no, now.format("%H:%M:%S%.f"));
+
+                                job.handle();
+                                debug!("FINISH: N/A-{} --- {}", &no, now.format("%H:%M:%S%.f"));
+                            }
+                        };
+                    }
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }) {
+        Ok(jh) => (Some(jh), Some(tx)),
+        Err(e) => {
+            error!("Could not start the cron runner thread: {}", e);
+            (None, None)
+        }
     }
 }
 
