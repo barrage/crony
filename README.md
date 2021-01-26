@@ -3,7 +3,7 @@
 # crony
 
 ```toml
-crony = "0.2.0"
+crony = "0.2.1"
 ```
 
 ## Crony: a simple cron runner
