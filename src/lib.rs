@@ -116,6 +116,13 @@ pub trait Job: Send + Sync {
 
 /// Struct for marking jobs running
 pub struct Tracker(Vec<usize>);
+
+impl Default for Tracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tracker {
     /// Return new instance of running
     pub fn new() -> Self {
@@ -130,7 +137,7 @@ impl Tracker {
     /// Set job id as running
     pub fn start(&mut self, id: &usize) {
         if !self.running(id) {
-            self.0.push(id.clone());
+            self.0.push(*id);
         }
     }
 
@@ -154,6 +161,12 @@ pub struct Runner {
     tx: Option<mpsc::Sender<Result<(), ()>>>,
 }
 
+impl Default for Runner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Runner {
     /// Create new runner
     pub fn new() -> Self {
@@ -168,6 +181,7 @@ impl Runner {
     /// Add jobs into the runner
     ///
     /// **panics** if you try to push a job onto already started runner
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, job: Box<dyn Job>) -> Self {
         if self.running {
             panic!("Cannot push job onto runner once the runner is started!");
@@ -184,7 +198,7 @@ impl Runner {
 
     /// Start the loop and job execution
     pub fn run(self) -> Self {
-        if self.jobs.len() == 0 {
+        if self.jobs.is_empty() {
             return self;
         }
 
@@ -201,7 +215,7 @@ impl Runner {
     /// Stop the spawned runner
     pub fn stop(mut self) {
         if !self.running {
-            return ();
+            return;
         }
         if let Some(thread) = self.thread.take() {
             if let Some(tx) = self.tx {
@@ -214,13 +228,15 @@ impl Runner {
                 .join()
                 .expect("Could not stop the spawned cron runner thread");
         }
-        ()
     }
 }
 
+type TxRx = (Sender<Result<(), ()>>, Receiver<Result<(), ()>>);
+type JhTx = (Option<JoinHandle<()>>, Option<Sender<Result<(), ()>>>);
+
 /// Spanw the thread for the runner and return its sender to stop it
-fn spawn(runner: Runner) -> (Option<JoinHandle<()>>, Option<Sender<Result<(), ()>>>) {
-    let (tx, rx): (Sender<Result<(), ()>>, Receiver<Result<(), ()>>) = mpsc::channel();
+fn spawn(runner: Runner) -> JhTx {
+    let (tx, rx): TxRx = mpsc::channel();
 
     match Builder::new()
         .name(String::from("cron-runner-thread"))
@@ -228,13 +244,10 @@ fn spawn(runner: Runner) -> (Option<JoinHandle<()>>, Option<Sender<Result<(), ()
             let jobs = runner.jobs;
 
             loop {
-                match rx.try_recv() {
-                    Ok(_) => {
-                        info!("Stopping the cron runner thread");
-                        break;
-                    }
-                    Err(_) => (),
-                };
+                if rx.try_recv().is_ok() {
+                    info!("Stopping the cron runner thread");
+                    break;
+                }
 
                 for (id, job) in jobs.iter().enumerate() {
                     let no = (id + 1).to_string();
