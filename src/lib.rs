@@ -11,34 +11,45 @@
 //!
 //! ## Example
 //! ```
-//! extern crate crony;
-//!
 //! use crony::{Job, Runner, Schedule};
-//! use std::str::FromStr;
+//! use std::thread;
+//! use std::time::Duration;
 //!
 //! struct ExampleJob;
 //! impl Job for ExampleJob {
 //!     fn schedule(&self) -> Schedule {
-//!         // Runs every minute
-//!         Schedule::from_str("0 * * * * *").unwrap()
+//!         "1/5 * * * * *".parse().unwrap()
 //!     }
 //!     fn handle(&self) {
-//!         println!("Hello, I am cron job running at: {}", self.now());
+//!         println!("Hello, I am a cron job running at: {}", self.now());
 //!     }
 //! }
 //!
 //! fn main() {
-//!     println!("Hello world");
-//!     Runner::new().add(Box::new(ExampleJob)).run();
-//! }
+//!     let mut runner = Runner::new();
 //!
-//! /*
-//! Hello world
-//! Hello, I am cron job running at: 2020-12-10 16:01:59.740944 UTC
-//! Hello, I am cron job running at: 2020-12-10 16:02:59.821043 UTC
-//! */
+//!     println!("Adding ExampleJob to the Runner");
+//!     runner = runner.add(Box::new(ExampleJob));
+//!
+//!     println!("Starting the Runner for 20 seconds");
+//!     runner = runner.run();
+//!     thread::sleep(Duration::from_millis(20 * 1000));
+//!
+//!     println!("Stopping the Runner");
+//!     runner.stop();
+//! }
 //! ```
-
+//!
+//! Output:
+//! ```
+//! Adding ExampleJob to the Runner
+//! Starting the Runner for 20 seconds
+//! Hello, I am a cron job running at: 2021-01-31 03:06:25.908475 UTC
+//! Hello, I am a cron job running at: 2021-01-31 03:06:30.912637 UTC
+//! Hello, I am a cron job running at: 2021-01-31 03:06:35.926938 UTC
+//! Hello, I am a cron job running at: 2021-01-31 03:06:40.962138 UTC
+//! Stopping the Runner
+//! ```
 extern crate chrono;
 extern crate cron;
 #[macro_use]
