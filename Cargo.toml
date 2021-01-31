@@ -6,6 +6,8 @@ edition = "2018"
 license = "MIT"
 keywords = ["cron", "runner"]
 description = "Simple cron runner that spawns another thread to run your cron jobs"
+documentation = "https://docs.rs/crony/"
+repository = "https://github.com/barrage/crony"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
