@@ -4,7 +4,7 @@
 # crony
 
 ```toml
-crony = "0.2.1"
+crony = "0.2.2"
 ```
 
 ## Crony: a simple cron runner
@@ -19,8 +19,6 @@ executed in the same thread as the loop but will hold the loop until the job is 
 Please look at the [**`Job trait`**](./trait.Job.html) documentation for more information.
 
 ### Example
-You can run the example using `cargo run --example basic`
-
 ```rust
 use crony::{Job, Runner, Schedule};
 use std::thread;
@@ -36,7 +34,7 @@ impl Job for ExampleJob {
     }
 }
 
-fn main() {
+fn run() {
     let mut runner = Runner::new();
 
     println!("Adding ExampleJob to the Runner");
@@ -49,10 +47,14 @@ fn main() {
     println!("Stopping the Runner");
     runner.stop();
 }
+
+fn main() {
+    run();
+}
 ```
 
 Output:
-```
+```shell
 Adding ExampleJob to the Runner
 Starting the Runner for 20 seconds
 Hello, I am a cron job running at: 2021-01-31 03:06:25.908475 UTC
