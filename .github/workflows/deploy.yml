@@ -18,7 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Run tests
-      run: cargo test --verbose && cargo clippy
+      run: cargo test --verbose && cargo clippy -- -D warnings
 
   deploy:
 
