@@ -25,7 +25,7 @@
 //!     }
 //! }
 //!
-//! fn main() {
+//! fn run() {
 //!     let mut runner = Runner::new();
 //!
 //!     println!("Adding ExampleJob to the Runner");
@@ -38,10 +38,14 @@
 //!     println!("Stopping the Runner");
 //!     runner.stop();
 //! }
+//!
+//! fn main() {
+//!     run();
+//! }
 //! ```
 //!
 //! Output:
-//! ```
+//! ```shell
 //! Adding ExampleJob to the Runner
 //! Starting the Runner for 20 seconds
 //! Hello, I am a cron job running at: 2021-01-31 03:06:25.908475 UTC

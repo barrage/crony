@@ -1,4 +1,5 @@
 [![Crates.io](https://img.shields.io/crates/v/crony.svg)](https://crates.io/crates/crony)
+[![Docs.rs](https://docs.rs/crony/badge.svg)](https://docs.rs/crony)
 
 # {{crate}}
 
