@@ -32,7 +32,7 @@
 //!     runner = runner.add(Box::new(ExampleJob));
 //!
 //!     println!("Starting the Runner for 20 seconds");
-//!     runner = runner.run(None);
+//!     runner = runner.run();
 //!     thread::sleep(Duration::from_millis(20 * 1000));
 //!
 //!     println!("Stopping the Runner");
