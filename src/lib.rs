@@ -32,7 +32,7 @@
 //!     runner = runner.add(Box::new(ExampleJob));
 //!
 //!     println!("Starting the Runner for 20 seconds");
-//!     runner = runner.run();
+//!     runner = runner.run(None);
 //!     thread::sleep(Duration::from_millis(20 * 1000));
 //!
 //!     println!("Stopping the Runner");
@@ -62,7 +62,10 @@ extern crate log;
 use chrono::{DateTime, Duration, Utc};
 use lazy_static::lazy_static;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex,
+};
 use std::thread::{Builder, JoinHandle};
 
 /// Re-export of (cron)[https://crates.io/crates/cron] crate
@@ -150,20 +153,24 @@ impl Tracker {
     }
 
     /// Set job id as running
-    pub fn start(&mut self, id: &usize) {
+    pub fn start(&mut self, id: &usize) -> usize {
         if !self.running(id) {
             self.0.push(*id);
         }
+
+        self.0.len()
     }
 
     /// Unmark the job from running
-    pub fn stop(&mut self, id: &usize) {
+    pub fn stop(&mut self, id: &usize) -> usize {
         if self.running(id) {
             match self.0.iter().position(|&r| r == *id) {
                 Some(i) => self.0.remove(i),
                 None => 0,
             };
         }
+
+        self.0.len()
     }
 }
 
@@ -174,6 +181,7 @@ pub struct Runner {
     thread: Option<JoinHandle<()>>,
     running: bool,
     tx: Option<mpsc::Sender<Result<(), ()>>>,
+    working: Arc<AtomicBool>,
 }
 
 impl Default for Runner {
@@ -190,6 +198,7 @@ impl Runner {
             thread: None,
             running: false,
             tx: None,
+            working: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -217,13 +226,15 @@ impl Runner {
             return self;
         }
 
-        let (thread, tx) = spawn(self);
+        let working = Arc::new(AtomicBool::new(false));
+        let (thread, tx) = spawn(self, working.clone());
 
         Self {
             thread,
             jobs: vec![],
             running: true,
             tx,
+            working,
         }
     }
 
@@ -244,13 +255,23 @@ impl Runner {
                 .expect("Could not stop the spawned cron runner thread");
         }
     }
+
+    /// Lets us know if the cron worker is running
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
+
+    /// Lets us know if the worker is in the process of executing a job currently
+    pub fn is_working(&self) -> bool {
+        self.working.load(Ordering::Relaxed)
+    }
 }
 
 type TxRx = (Sender<Result<(), ()>>, Receiver<Result<(), ()>>);
 type JhTx = (Option<JoinHandle<()>>, Option<Sender<Result<(), ()>>>);
 
 /// Spanw the thread for the runner and return its sender to stop it
-fn spawn(runner: Runner) -> JhTx {
+fn spawn(runner: Runner, working: Arc<AtomicBool>) -> JhTx {
     let (tx, rx): TxRx = mpsc::channel();
 
     match Builder::new()
@@ -273,6 +294,7 @@ fn spawn(runner: Runner) -> JhTx {
                     {
                         TRACKER.lock().unwrap().start(&id);
 
+                        let working_clone = working.clone();
                         // Spawning a new thread to run the job
                         match Builder::new()
                             .name(format!("cron-job-thread-{}", &no))
@@ -284,8 +306,12 @@ fn spawn(runner: Runner) -> JhTx {
                                     now.format("%H:%M:%S%.f")
                                 );
 
+                                working_clone.store(true, Ordering::Relaxed);
                                 _job.handle();
-                                TRACKER.lock().unwrap().stop(&id);
+                                working_clone.store(
+                                    TRACKER.lock().unwrap().stop(&id) != 0,
+                                    Ordering::Relaxed,
+                                );
 
                                 debug!(
                                     "FINISH: {} --- {}",
@@ -299,8 +325,12 @@ fn spawn(runner: Runner) -> JhTx {
                                 let no = (id + 1).to_string();
                                 let now = Utc::now();
                                 debug!("START: N/A-{} --- {}", &no, now.format("%H:%M:%S%.f"));
-
+                                working.store(true, Ordering::Relaxed);
                                 job.handle();
+                                working.store(
+                                    TRACKER.lock().unwrap().stop(&id) != 0,
+                                    Ordering::Relaxed,
+                                );
                                 debug!("FINISH: N/A-{} --- {}", &no, now.format("%H:%M:%S%.f"));
                             }
                         };
