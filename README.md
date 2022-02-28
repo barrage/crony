@@ -4,7 +4,7 @@
 # crony
 
 ```toml
-crony = "0.2.2"
+crony = "0.3.0"
 ```
 
 ## Crony: a simple cron runner
@@ -41,7 +41,7 @@ fn run() {
     runner = runner.add(Box::new(ExampleJob));
 
     println!("Starting the Runner for 20 seconds");
-    runner = runner.run();
+    runner = runner.run(None);
     thread::sleep(Duration::from_millis(20 * 1000));
 
     println!("Stopping the Runner");
