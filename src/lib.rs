@@ -297,7 +297,7 @@ fn spawn(runner: Runner, working: Arc<AtomicBool>) -> JhTx {
 
                         let working_clone = working.clone();
                         // Spawning a new thread to run the job
-                        match Builder::new().name(format!("{}", no)).spawn(move || {
+                        match Builder::new().name(format!("cron-job-thread-{}", no)).spawn(move || {
                             let now = Utc::now();
                             debug!(
                                 "START: {} --- {}",
