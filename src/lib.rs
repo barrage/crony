@@ -61,12 +61,13 @@ extern crate log;
 
 use chrono::{DateTime, Duration, Utc};
 use lazy_static::lazy_static;
+use std::panic;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc, Mutex,
 };
-use std::thread::{Builder, JoinHandle};
+use std::thread::{self, Builder, JoinHandle};
 
 /// Re-export of (cron)[https://crates.io/crates/cron] crate
 /// struct for setting the cron schedule time.
@@ -296,29 +297,35 @@ fn spawn(runner: Runner, working: Arc<AtomicBool>) -> JhTx {
 
                         let working_clone = working.clone();
                         // Spawning a new thread to run the job
-                        match Builder::new()
-                            .name(format!("cron-job-thread-{}", &no))
-                            .spawn(move || {
-                                let now = Utc::now();
-                                debug!(
-                                    "START: {} --- {}",
-                                    format!("cron-job-thread-{}", &no),
+                        match Builder::new().name(format!("{}", no)).spawn(move || {
+                            let now = Utc::now();
+                            debug!(
+                                "START: {} --- {}",
+                                format!("cron-job-thread-{}", no),
+                                now.format("%H:%M:%S%.f")
+                            );
+                            working_clone.store(true, Ordering::Relaxed);
+
+                            let hook = panic::take_hook();
+                            std::panic::set_hook(Box::new(|_| {}));
+                            if thread::spawn(move || _job.handle()).join().is_err() {
+                                error!(
+                                    "ERROR: {} --- {}",
+                                    format!("cron-job-thread-{}", no),
                                     now.format("%H:%M:%S%.f")
                                 );
+                            }
+                            std::panic::set_hook(hook);
 
-                                working_clone.store(true, Ordering::Relaxed);
-                                _job.handle();
-                                working_clone.store(
-                                    TRACKER.lock().unwrap().stop(&id) != 0,
-                                    Ordering::Relaxed,
-                                );
+                            working_clone
+                                .store(TRACKER.lock().unwrap().stop(&id) != 0, Ordering::Relaxed);
 
-                                debug!(
-                                    "FINISH: {} --- {}",
-                                    format!("cron-job-thread-{}", &no),
-                                    now.format("%H:%M:%S%.f")
-                                );
-                            }) {
+                            debug!(
+                                "FINISH: {} --- {}",
+                                format!("cron-job-thread-{}", no),
+                                now.format("%H:%M:%S%.f")
+                            );
+                        }) {
                             Ok(_) => (),
                             // In case spawning a new thread fails, we'll run it here
                             Err(_) => {
@@ -326,7 +333,18 @@ fn spawn(runner: Runner, working: Arc<AtomicBool>) -> JhTx {
                                 let now = Utc::now();
                                 debug!("START: N/A-{} --- {}", &no, now.format("%H:%M:%S%.f"));
                                 working.store(true, Ordering::Relaxed);
-                                job.handle();
+                                let job = job.clone();
+
+                                let hook = panic::take_hook();
+                                std::panic::set_hook(Box::new(|_| {}));
+                                if thread::spawn(move || job.handle()).join().is_err() {
+                                    error!(
+                                        "ERROR: {} --- {}",
+                                        format!("cron-job-thread-{}", no),
+                                        now.format("%H:%M:%S%.f")
+                                    );
+                                }
+                                std::panic::set_hook(hook);
                                 working.store(
                                     TRACKER.lock().unwrap().stop(&id) != 0,
                                     Ordering::Relaxed,
